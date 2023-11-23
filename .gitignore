@@ -1,0 +1,6 @@
+/Bin
+/build
+/msvc/Build
+/msvc/.vs
+
+*.vcxproj.user
