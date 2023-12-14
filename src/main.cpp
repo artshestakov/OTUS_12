@@ -34,21 +34,22 @@ int main(int argc, char* argv[])
 
     //”бедимс€, что числовые параметры указаны правильно и там не указано "космическое число"
     if ((!m || !r) ||
-        (m >= max_thread_count || r >= max_thread_count))
+        (m > max_thread_count || r > max_thread_count))
     {
         print_error();
         return EXIT_FAILURE;
     }
 
-    MapReduce mr;
+    MapReduce mr(m, r);
 
     //¬ыполним разделение файла
-    if (!mr.Split(file_path, m))
+    if (!mr.Split(file_path))
     {
+        std::cout << mr.GetErrorString() << std::endl;
         return EXIT_FAILURE;
     }
 
-    mr.Run(file_path, m, r);
+    mr.Run();
 
     return EXIT_SUCCESS;
 }
