@@ -8,7 +8,7 @@
 MapReduce::MapReduce(unsigned int m, unsigned int r)
     : m_Map(m),
     m_Reduce(r),
-    m_ThreadCount(0)
+    m_ActiveThread(0)
 {
 
 }
@@ -21,6 +21,33 @@ MapReduce::~MapReduce()
 const std::string& MapReduce::GetErrorString() const
 {
     return m_ErrorString;
+}
+//-----------------------------------------------------------------------------
+bool MapReduce::Map(const std::string& file_path)
+{
+    if (!Split(file_path))
+    {
+        return false;
+    }
+
+    m_ActiveThread = (unsigned int)m_Chunks.size();
+    for (std::string& chunk : m_Chunks)
+    {
+        std::thread(&MapReduce::Worker, this, std::ref(chunk)).detach();
+    }
+
+    //∆дЄм, пока все потоки завершат свою работу
+    while (m_ActiveThread > 0)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    return true;
+}
+//-----------------------------------------------------------------------------
+bool MapReduce::Reduce()
+{
+    return true;
 }
 //-----------------------------------------------------------------------------
 bool MapReduce::Split(const std::string& file_path)
@@ -66,26 +93,7 @@ bool MapReduce::Split(const std::string& file_path)
     return true;
 }
 //-----------------------------------------------------------------------------
-bool MapReduce::Run()
-{
-    m_ThreadCount = (unsigned int)m_Chunks.size();
-
-    for (const std::string& chunk : m_Chunks)
-    {
-        std::thread(&MapReduce::Worker, this, chunk).detach();
-        //std::this_thread::sleep_for(std::chrono::milliseconds(60000));
-    }
-
-    //∆дЄм, пока все потоки завершат свою работу
-    while (m_ThreadCount > 0)
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    return true;
-}
-//-----------------------------------------------------------------------------
-void MapReduce::Worker(const std::string& s)
+void MapReduce::Worker(std::string& s)
 {
     std::string thread_id = GetCurrentThreadID();
     printf("%s\tstarted thread\n", thread_id.c_str());
@@ -112,10 +120,16 @@ void MapReduce::Worker(const std::string& s)
         v.emplace_back(std::move(line));
     }
 
+    //ќтдаЄм пам€ть обратно
+    s.clear();
+    s.shrink_to_fit();
+
     std::sort(v.begin(), v.end());
 
+    //"—игналим", что этот поток завершил работу и отдаЄм результат в список векторов
     m_Mutex.lock();
-    --m_ThreadCount;
+    --m_ActiveThread;
+    m_VectorTotal.emplace_back(std::move(v));
     m_Mutex.unlock();
 
     printf("%s\tfinished thread by %llu msec\n", thread_id.c_str(), GetTickDiff(time_point));

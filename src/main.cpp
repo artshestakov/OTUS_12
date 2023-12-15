@@ -42,14 +42,17 @@ int main(int argc, char* argv[])
 
     MapReduce mr(m, r);
 
-    //Выполним разделение файла
-    if (!mr.Split(file_path))
+    if (!mr.Map(file_path))
     {
         std::cout << mr.GetErrorString() << std::endl;
         return EXIT_FAILURE;
     }
 
-    mr.Run();
+    if (!mr.Reduce())
+    {
+        std::cout << mr.GetErrorString() << std::endl;
+        return EXIT_FAILURE;
+    }
 
     return EXIT_SUCCESS;
 }

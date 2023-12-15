@@ -14,11 +14,12 @@ public:
 
     const std::string& GetErrorString() const;
 
-    bool Split(const std::string& file_path);
-    bool Run();
+    bool Map(const std::string& file_path);
+    bool Reduce();
 
 private:
-    void Worker(const std::string& s);
+    bool Split(const std::string& file_path);
+    void Worker(std::string& s);
     std::string GetCurrentThreadID();
     MapReduce::TimePoint GetTick();
     uint64_t GetTickDiff(const TimePoint& t);
@@ -29,7 +30,8 @@ private:
     unsigned int m_Map;
     unsigned int m_Reduce;
     std::vector<std::string> m_Chunks;
-    unsigned int m_ThreadCount;
+    unsigned int m_ActiveThread;
     std::mutex m_Mutex;
+    std::vector<std::vector<std::string>> m_VectorTotal;
 };
 //-----------------------------------------------------------------------------
