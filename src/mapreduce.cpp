@@ -45,6 +45,36 @@ bool MapReduce::Map(const std::string& file_path)
     return true;
 }
 //-----------------------------------------------------------------------------
+void MapReduce::Shuffle()
+{
+    //Сначала удаляем дуликаты в каждом из векторов
+    for (auto& vec : m_VectorTotal)
+    {
+        vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
+    }
+
+    auto remove_duplicates = [](const std::vector<std::string>& vec_left, std::vector<std::string>& vec_right)
+    {
+        for (const std::string& s : vec_left)
+        {
+            for (size_t i = 0, c = vec_right.size(); i < c; ++i)
+            {
+                if (s == vec_right[i])
+                {
+                    vec_right.erase(vec_right.begin() + i);
+                    --c; --i;
+                }
+            }
+        }
+    };
+
+    //Теперь проверим пересечение дубликатов между векторами
+    for (size_t i = 0; i < m_VectorTotal.size(); ++i)
+    {
+        remove_duplicates(m_VectorTotal[i], m_VectorTotal[i + 1]);
+    }
+}
+//-----------------------------------------------------------------------------
 bool MapReduce::Reduce()
 {
     return true;

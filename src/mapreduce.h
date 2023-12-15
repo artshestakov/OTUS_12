@@ -15,6 +15,7 @@ public:
     const std::string& GetErrorString() const;
 
     bool Map(const std::string& file_path);
+    void Shuffle();
     bool Reduce();
 
 private:

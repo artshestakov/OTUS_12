@@ -48,6 +48,8 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    mr.Shuffle();
+
     if (!mr.Reduce())
     {
         std::cout << mr.GetErrorString() << std::endl;
