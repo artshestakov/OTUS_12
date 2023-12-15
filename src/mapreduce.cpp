@@ -4,6 +4,8 @@
 #include <thread>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
+#include <string.h>
 //-----------------------------------------------------------------------------
 MapReduce::MapReduce(unsigned int m, unsigned int r)
     : m_Map(m),
