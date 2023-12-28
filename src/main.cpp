@@ -1,6 +1,6 @@
 #include <iostream>
 #include <filesystem>
-#include <thread>
+#include "utils.h"
 #include "mapreduce.h"
 //-----------------------------------------------------------------------------
 int main(int argc, char* argv[])
@@ -40,9 +40,11 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    MapReduce mr(m, r);
+    auto time_point = utils::GetTick();
 
-    if (!mr.Map(file_path))
+    MapReduce mr(m, r, file_path);
+
+    if (!mr.Map())
     {
         std::cout << mr.GetErrorString() << std::endl;
         return EXIT_FAILURE;
@@ -57,6 +59,7 @@ int main(int argc, char* argv[])
     }
 
     std::cout << "Minimum prefix is " << mr.GetMinPrefix() << std::endl;
+    std::cout << "Total time is " << utils::GetTickDiff(time_point) << " msec" << std::endl;
     return EXIT_SUCCESS;
 }
 //-----------------------------------------------------------------------------

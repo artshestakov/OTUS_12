@@ -1,15 +1,14 @@
 #include "mapreduce.h"
-#include <filesystem>
+#include "utils.h"
 #include <fstream>
-#include <thread>
-#include <sstream>
 #include <iostream>
 #include <algorithm>
-#include <string.h>
 //-----------------------------------------------------------------------------
-MapReduce::MapReduce(unsigned int m, unsigned int r)
+MapReduce::MapReduce(unsigned int m, unsigned int r, const std::string& file_path)
     : m_Map(m),
     m_Reduce(r),
+    m_FilePath(file_path),
+    m_DirOutput(std::filesystem::path(file_path).parent_path() / "output"),
     m_ActiveThread(0),
     m_MinPrefix(0)
 {
@@ -26,14 +25,14 @@ const std::string& MapReduce::GetErrorString() const
     return m_ErrorString;
 }
 //-----------------------------------------------------------------------------
-unsigned int MapReduce::GetMinPrefix() const
+size_t MapReduce::GetMinPrefix() const
 {
     return m_MinPrefix;
 }
 //-----------------------------------------------------------------------------
-bool MapReduce::Map(const std::string& file_path)
+bool MapReduce::Map()
 {
-    if (!Split(file_path))
+    if (!Split())
     {
         return false;
     }
@@ -41,7 +40,7 @@ bool MapReduce::Map(const std::string& file_path)
     m_ActiveThread = (unsigned int)m_Chunks.size();
     for (std::string& chunk : m_Chunks)
     {
-        std::thread(&MapReduce::Worker, this, std::ref(chunk)).detach();
+        std::thread(&MapReduce::WorkerMap, this, std::ref(chunk)).detach();
     }
 
     //Ждём, пока все потоки завершат свою работу
@@ -55,12 +54,12 @@ bool MapReduce::Map(const std::string& file_path)
 //-----------------------------------------------------------------------------
 void MapReduce::Shuffle()
 {
-    //Берём ссылку на первый элемент
-    auto& first_map = m_VectorTotal[0];
-
     //Если элементов больше одного, тогда переместим все в первый
     if (m_VectorTotal.size() > 1)
     {
+        //Берём ссылку на первый элемент
+        auto& first_map = m_VectorTotal.front();
+
         for (size_t i = 1; i < m_VectorTotal.size(); ++i)
         {
             auto& current_map = m_VectorTotal[i];
@@ -75,23 +74,69 @@ void MapReduce::Shuffle()
 //-----------------------------------------------------------------------------
 bool MapReduce::Reduce()
 {
+    if (!PrepareOutputDir())
+    {
+        return false;
+    }
+
+    //Берём ссылку на уже подготовленный элемент
+    auto& first_map = m_VectorTotal.front();
+
+    //Сформируем вектор, для передачи его в поток-редьюса
+    std::vector<std::string> v;
+    v.resize(first_map.size());
+
+    int i = -1; //Так и должно быть, чтобы ниже использовать ++i, а не i++
+    for (const auto& a : first_map)
+    {
+        v[++i] = a.first;
+    }
+
+    unsigned int v_size = v.size();
+    unsigned int chunk_size = v_size / m_Reduce;
+    unsigned int offset = 0;
+    m_ActiveThread = m_Reduce + (v_size % m_Reduce > 0 ? 1 : 0); //Расчёт кол-ва потоков
+    int file_index = 0;
+
+    while (v_size > 0)
+    {
+        if (v_size < chunk_size)
+        {
+            chunk_size = v_size;
+        }
+
+        std::thread(&MapReduce::WorkerReduce, this,
+            std::vector<std::string>(v.begin() + offset, v.begin() + chunk_size + offset),
+            ++file_index).detach();
+
+        v_size -= chunk_size;
+        offset += chunk_size;
+    }
+
+
+    //Ждём, пока все потоки завершат свою работу
+    while (m_ActiveThread > 0)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
     return true;
 }
 //-----------------------------------------------------------------------------
-bool MapReduce::Split(const std::string& file_path)
+bool MapReduce::Split()
 {
     std::error_code e;
-    uintmax_t file_size = std::filesystem::file_size(file_path, e);
+    uintmax_t file_size = std::filesystem::file_size(m_FilePath, e);
     if (e)
     {
         m_ErrorString = e.message();
         return false;
     }
 
-    std::cout << "Start reading file " << file_path << std::endl;
+    std::cout << "Start reading file " << m_FilePath << std::endl;
 
     //Пытаемся открыть файл
-    std::ifstream file(file_path);
+    std::ifstream file(m_FilePath);
     if (!file.is_open())
     {
         m_ErrorString = strerror(errno);
@@ -101,7 +146,7 @@ bool MapReduce::Split(const std::string& file_path)
     //Подсчитываем кол-во частей, на которые будет подёлен файл
     size_t chunk_size = (size_t)file_size / m_Map;
     size_t pos = 0;
-    auto time_point = GetTick();
+    auto time_point = utils::GetTick();
 
     std::vector<char> vec(chunk_size);
     while (file.read(&vec[0], chunk_size))
@@ -118,13 +163,13 @@ bool MapReduce::Split(const std::string& file_path)
     //Последний блок данных
     ProcessVector(vec);
 
-    std::cout << "Read OK by " << GetTickDiff(time_point) << " msec" << std::endl;
+    std::cout << "Read OK by " << utils::GetTickDiff(time_point) << " msec" << std::endl;
     return true;
 }
 //-----------------------------------------------------------------------------
-void MapReduce::Worker(std::string& s)
+void MapReduce::WorkerMap(std::string& s)
 {
-    std::string thread_id = GetCurrentThreadID();
+    std::string thread_id = utils::GetCurrentThreadID();
     printf("%s\tstarted thread\n", thread_id.c_str());
 
     //Заранее подсчитаем кол-во строк для вектора
@@ -141,7 +186,7 @@ void MapReduce::Worker(std::string& s)
     std::vector<std::string> v;
     v.reserve(reserve_size);
 
-    auto time_point = GetTick();
+    auto time_point = utils::GetTick();
 
     //Сформируем вектор строк
     std::string line;
@@ -177,24 +222,23 @@ void MapReduce::Worker(std::string& s)
     --m_ActiveThread;
     m_Mutex.unlock();
 
-    printf("%s\tfinished thread by %llu msec\n", thread_id.c_str(), GetTickDiff(time_point));
+    printf("%s\tfinished thread by %llu msec\n", thread_id.c_str(), utils::GetTickDiff(time_point));
 }
 //-----------------------------------------------------------------------------
-std::string MapReduce::GetCurrentThreadID()
+void MapReduce::WorkerReduce(const std::vector<std::string>& v, int file_index)
 {
-    std::ostringstream stream;
-    stream << std::this_thread::get_id();
-    return stream.str();
-}
-//-----------------------------------------------------------------------------
-MapReduce::TimePoint MapReduce::GetTick()
-{
-    return std::chrono::steady_clock::now();
-}
-//-----------------------------------------------------------------------------
-uint64_t MapReduce::GetTickDiff(const TimePoint& t)
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(GetTick() - t).count();
+    std::string file_name = "file" + std::to_string(file_index) + ".txt";
+
+    std::ofstream file_output(m_DirOutput / file_name);
+    for (const auto& str : v)
+    {
+        file_output << str << std::endl;
+    }
+
+    //"Сигналим", что этот поток завершил работу и отдаём результат в список векторов
+    m_Mutex.lock();
+    --m_ActiveThread;
+    m_Mutex.unlock();
 }
 //-----------------------------------------------------------------------------
 void MapReduce::ProcessVector(std::vector<char>& vec)
@@ -243,5 +287,39 @@ std::unordered_map<std::string, unsigned int> MapReduce::GetStringByMinSize(cons
     }
 
     return m;
+}
+//-----------------------------------------------------------------------------
+bool MapReduce::PrepareOutputDir()
+{
+    std::error_code e;
+
+    //Проверим, не существует ли директория
+    bool dir_exists = std::filesystem::exists(m_DirOutput, e);
+    if (e)
+    {
+        m_ErrorString = e.message();
+        return false;
+    }
+
+    //Если существует - удаляем её и все что в ней есть (чтобы не заморачиваться)
+    if (dir_exists)
+    {
+        (void)std::filesystem::remove_all(m_DirOutput, e);
+        if (e)
+        {
+            m_ErrorString = e.message();
+            return false;
+        }
+    }
+
+    //Создаём её по-новой
+    (void)std::filesystem::create_directory(m_DirOutput, e);
+    if (e)
+    {
+        m_ErrorString = e.message();
+        return false;
+    }
+
+    return true;
 }
 //-----------------------------------------------------------------------------
