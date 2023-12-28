@@ -10,7 +10,8 @@
 MapReduce::MapReduce(unsigned int m, unsigned int r)
     : m_Map(m),
     m_Reduce(r),
-    m_ActiveThread(0)
+    m_ActiveThread(0),
+    m_MinPrefix(0)
 {
 
 }
@@ -23,6 +24,11 @@ MapReduce::~MapReduce()
 const std::string& MapReduce::GetErrorString() const
 {
     return m_ErrorString;
+}
+//-----------------------------------------------------------------------------
+unsigned int MapReduce::GetMinPrefix() const
+{
+    return m_MinPrefix;
 }
 //-----------------------------------------------------------------------------
 bool MapReduce::Map(const std::string& file_path)
@@ -38,7 +44,7 @@ bool MapReduce::Map(const std::string& file_path)
         std::thread(&MapReduce::Worker, this, std::ref(chunk)).detach();
     }
 
-    //���, ���� ��� ������ �������� ���� ������
+    //Ждём, пока все потоки завершат свою работу
     while (m_ActiveThread > 0)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -49,31 +55,21 @@ bool MapReduce::Map(const std::string& file_path)
 //-----------------------------------------------------------------------------
 void MapReduce::Shuffle()
 {
-    //������� ������� �������� � ������ �� ��������
-    for (auto& vec : m_VectorTotal)
-    {
-        vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
-    }
+    //Берём ссылку на первый элемент
+    auto& first_map = m_VectorTotal[0];
 
-    auto remove_duplicates = [](const std::vector<std::string>& vec_left, std::vector<std::string>& vec_right)
+    //Если элементов больше одного, тогда переместим все в первый
+    if (m_VectorTotal.size() > 1)
     {
-        for (const std::string& s : vec_left)
+        for (size_t i = 1; i < m_VectorTotal.size(); ++i)
         {
-            for (size_t i = 0, c = vec_right.size(); i < c; ++i)
-            {
-                if (s == vec_right[i])
-                {
-                    vec_right.erase(vec_right.begin() + i);
-                    --c; --i;
-                }
-            }
+            auto& current_map = m_VectorTotal[i];
+            first_map.insert(current_map.begin(), current_map.end());
+            current_map.clear(); //Осводим память
         }
-    };
 
-    //������ �������� ����������� ���������� ����� ���������
-    for (size_t i = 0; i < m_VectorTotal.size(); ++i)
-    {
-        remove_duplicates(m_VectorTotal[i], m_VectorTotal[i + 1]);
+        //И грохнем все, кроме первого элемента
+        m_VectorTotal.resize(1);
     }
 }
 //-----------------------------------------------------------------------------
@@ -94,7 +90,7 @@ bool MapReduce::Split(const std::string& file_path)
 
     std::cout << "Start reading file " << file_path << std::endl;
 
-    //�������� ������� ����
+    //Пытаемся открыть файл
     std::ifstream file(file_path);
     if (!file.is_open())
     {
@@ -102,6 +98,7 @@ bool MapReduce::Split(const std::string& file_path)
         return false;
     }
 
+    //Подсчитываем кол-во частей, на которые будет подёлен файл
     size_t chunk_size = (size_t)file_size / m_Map;
     size_t pos = 0;
     auto time_point = GetTick();
@@ -111,14 +108,14 @@ bool MapReduce::Split(const std::string& file_path)
     {
         std::cout << "Reading " << std::to_string(m_Chunks.size() + 1) << " chunk..." << std::endl;
 
-        //���������� � ��������� ����������� ������ ������
+        //Поработаем с очередным прочитанным блоком данных
         ProcessVector(vec);
 
         pos += vec.size();
         file.seekg(pos);
     }
 
-    //��������� ���� ������
+    //Последний блок данных
     ProcessVector(vec);
 
     std::cout << "Read OK by " << GetTickDiff(time_point) << " msec" << std::endl;
@@ -130,7 +127,7 @@ void MapReduce::Worker(std::string& s)
     std::string thread_id = GetCurrentThreadID();
     printf("%s\tstarted thread\n", thread_id.c_str());
 
-    //������� ���������� ���-�� ����� ��� �������
+    //Заранее подсчитаем кол-во строк для вектора
     size_t reserve_size = 0;
     for (size_t i = 0, c = s.size(); i < c; ++i)
     {
@@ -146,22 +143,38 @@ void MapReduce::Worker(std::string& s)
 
     auto time_point = GetTick();
 
+    //Сформируем вектор строк
     std::string line;
     while (std::getline(stream, line))
     {
+        //Помимо формирования вектора со строками, мы ещё и найдём размер самой маленькой строки
+        //Это нам потребуется для поиска префикса
+
+        auto line_size = line.size();
+        if (line_size == 0)
+        {
+            //Пропустим пустые строки. Зачем они нам?
+            continue;
+        }
+
+        if (m_MinPrefix == 0 || line_size < m_MinPrefix)
+        {
+            m_MinPrefix = line_size;
+        }
+
         v.emplace_back(std::move(line));
     }
 
-    //����� ������ �������
+    //Отдаём память обратно
     s.clear();
     s.shrink_to_fit();
 
-    std::sort(v.begin(), v.end());
+    auto strings = GetStringByMinSize(v);
 
-    //"��������", ��� ���� ����� �������� ������ � ����� ��������� � ������ ��������
+    //"Сигналим", что этот поток завершил работу и отдаём результат в список векторов
     m_Mutex.lock();
+    m_VectorTotal.emplace_back(strings);
     --m_ActiveThread;
-    m_VectorTotal.emplace_back(std::move(v));
     m_Mutex.unlock();
 
     printf("%s\tfinished thread by %llu msec\n", thread_id.c_str(), GetTickDiff(time_point));
@@ -199,9 +212,36 @@ void MapReduce::ProcessVector(std::vector<char>& vec)
         erase_pos = std::distance(vec.begin(), it_reverse.base());
     }
 
-    vec.erase(vec.begin() + erase_pos, vec.end());
-    m_Chunks.emplace_back(std::move(std::string(vec.begin(), vec.end())));
+    //Нужно учитывать, что позиция должна быть отлична от нуля
+    //Такое может быть, например, когда мы читаем файл в один поток мапперов и по факту файл читается целиком
+    if (erase_pos > 0)
+    {
+        vec.erase(vec.begin() + erase_pos, vec.end());
+        m_Chunks.emplace_back(std::move(std::string(vec.begin(), vec.end())));
 
-    std::fill(vec.begin(), vec.end(), '\0');
+        std::fill(vec.begin(), vec.end(), '\0');
+    }
+}
+//-----------------------------------------------------------------------------
+std::unordered_map<std::string, unsigned int> MapReduce::GetStringByMinSize(const std::vector<std::string>& v)
+{
+    std::unordered_map<std::string, unsigned int> m;
+
+    for (const std::string& str : v)
+    {
+        std::string part_of_string = str.substr(0, m_MinPrefix);
+
+        auto it = m.find(part_of_string);
+        if (it != m.end())
+        {
+            ++m[part_of_string];
+        }
+        else
+        {
+            m[part_of_string] = 1;
+        }
+    }
+
+    return m;
 }
 //-----------------------------------------------------------------------------

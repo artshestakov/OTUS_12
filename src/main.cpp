@@ -13,14 +13,14 @@ int main(int argc, char* argv[])
             "  mapreduce some_file.txt 5 5" << std::endl;
     };
 
-    //Ïðîâåðèì, ÷òî àðãóìåíòîâ äîñòàòî÷íî
+    //ÐŸÑ€Ð¾Ð²ÐµÑ€Ð¸Ð¼, Ñ‡Ñ‚Ð¾ Ð°Ñ€Ð³ÑƒÐ¼ÐµÐ½Ñ‚Ð¾Ð² Ð´Ð¾ÑÑ‚Ð°Ñ‚Ð¾Ñ‡Ð½Ð¾
     if (argc != 4)
     {
         print_error();
         return EXIT_FAILURE;
     }
 
-    //Ïðîâåðèì, ÷òî ôàéë âîîáùå ñóùåñòâóåò
+    //ÐŸÑ€Ð¾Ð²ÐµÑ€Ð¸Ð¼, Ñ‡Ñ‚Ð¾ Ñ„Ð°Ð¹Ð» Ð²Ð¾Ð¾Ð±Ñ‰Ðµ ÑÑƒÑ‰ÐµÑÑ‚Ð²ÑƒÐµÑ‚
     std::string file_path(argv[1]);
     if (!std::filesystem::exists(file_path))
     {
@@ -32,7 +32,7 @@ int main(int argc, char* argv[])
     unsigned int r = (unsigned int)std::atoi(argv[3]);
     auto max_thread_count = std::thread::hardware_concurrency() * 4;
 
-    //Óáåäèìñÿ, ÷òî ÷èñëîâûå ïàðàìåòðû óêàçàíû ïðàâèëüíî è òàì íå óêàçàíî "êîñìè÷åñêîå ÷èñëî"
+    //Ð£Ð±ÐµÐ´Ð¸Ð¼ÑÑ, Ñ‡Ñ‚Ð¾ Ñ‡Ð¸ÑÐ»Ð¾Ð²Ñ‹Ðµ Ð¿Ð°Ñ€Ð°Ð¼ÐµÑ‚Ñ€Ñ‹ ÑƒÐºÐ°Ð·Ð°Ð½Ñ‹ Ð¿Ñ€Ð°Ð²Ð¸Ð»ÑŒÐ½Ð¾ Ð¸ Ñ‚Ð°Ð¼ Ð½Ðµ ÑƒÐºÐ°Ð·Ð°Ð½Ð¾ "ÐºÐ¾ÑÐ¼Ð¸Ñ‡ÐµÑÐºÐ¾Ðµ Ñ‡Ð¸ÑÐ»Ð¾"
     if ((!m || !r) ||
         (m > max_thread_count || r > max_thread_count))
     {
@@ -56,6 +56,7 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    std::cout << "Minimum prefix is " << mr.GetMinPrefix() << std::endl;
     return EXIT_SUCCESS;
 }
 //-----------------------------------------------------------------------------
