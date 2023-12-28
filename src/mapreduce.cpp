@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <string.h>
 //-----------------------------------------------------------------------------
 MapReduce::MapReduce(unsigned int m, unsigned int r, const std::string& file_path)
     : m_Map(m),
